@@ -126,7 +126,8 @@
 ;; A simple test.
 (defvar *input-string* "abaaacaabacdbaaaaaaa")
 (defvar *encoded-seq* nil)
-(defun test ()
+(defun test-enc ()
+  (setf *encoded-seq* nil)
   (let ((ss (make-string-input-stream *input-string*))
         (ctx (fresh-lzw-enc-ctx)))
     ;; Loop through all of the letters.
@@ -144,10 +145,25 @@
 ;; Decoding.
 
 (defstruct dec-table-entry
+  ;; Points to dec-table-entry that makes prefix of this element.
   prefix
+  ;; String that this table element adds to its prefix.
   rest)
 
 (defstruct lzw-dec-ctx
+  ;; Table mapping encoded numbers to strings that they represent.
   (table (make-hash-table))
-  last-inserted)
+  ;; Points to dec-table-entry that was last inserted.
+  last-inserted
+  ;; Points to dec-table-entry that was last decoded.
+  last-decoded
+  ;; Number of nodes in the table.
+  node-count)
+
+(defun fresh-lzw-dec-ctx ()
+  (let ((ctx (make-lzw-dec-ctx :node-count 256)))
+    (loop for i from 0 to 255
+          do (setf (gethash i (lzw-dec-ctx-table ctx))
+                   (make-dec-table-entry :prefix nil :rest i)))
+    ctx))
 
