@@ -48,27 +48,22 @@
 
 
 ;; LZW context.
-;;(defclass lzw-enc-context ()
-;;  ((tree :reader lzw-enc-ctx-tree :initarg :tree :initform (fresh-tree))
-;;   (nodes :reader lzw-enc-ctx-nodes :initarg :nodes :initform 256)
-;;   (inserted :reader lzw-enc-ctx-inserted :initarg :inserted :initform nil))
-
 (defstruct lzw-enc-ctx
+  ;; Root of LZW dictionary.
   tree
+  ;; Node count in the tree.
   (node-count 256 :type fixnum)
-  ;inserted
-  current
-  ;last-char
-)
+  ;; Current position in the tree during encoding.
+  current)
 
+;; Returns fresh LZW context that is ready for use with lzw-enc-letter.
 (defun fresh-lzw-enc-ctx ()
   (let ((ctx (make-lzw-enc-ctx)))
     (setf (lzw-enc-ctx-tree ctx) (fresh-tree))
     ctx))
 
-
 ;; Tries to walk from node to a next node using a letter.
-;; Returns list of (moved-to-node inserted-node output-code)
+;; Returns either NIL or integer 
 ;; The two possible outputs are: 
 ;;   (moved-to-node nil nil): It was possible to move to a next node.
 ;;   (nil inserted-node output-code): It was not possible to move to a next 
@@ -77,7 +72,7 @@
   (let* ((node (or (lzw-enc-ctx-current ctx) (lzw-enc-ctx-tree ctx)))
          (next (next-node node letter)))
     (if (null next)
-	(block true
+	(progn
 	  (assert (not (eq node (lzw-enc-ctx-tree ctx))))
 	  (let* ((output (node-num node)) ;; Output
 		 (num (lzw-enc-ctx-node-count ctx)) ;; Number of the new node.
@@ -91,19 +86,68 @@
 	    (setf (lzw-enc-ctx-current ctx) new-current)
 	    ;; Result is the output symbol
 	    output))
-	(block false
+	(progn
           ;; Change current node.
           (setf (lzw-enc-ctx-current ctx) next)
           ;; Return nil as we have nothing to output yet.
           nil))))
 
+;; Returns the last output character at the end of encoding.
+(defun lzw-enc-finish (ctx)
+  (assert (not (eq (lzw-enc-ctx-current ctx) (lzw-enc-ctx-tree ctx))))
+  (node-num (lzw-enc-ctx-current ctx)))
+
+;; Queue
+(defstruct queue 
+  front
+  back)
+
+(defun queue-put (q x)
+  (assert (queue-p q))
+  (if (null (queue-front q))
+      (setf (queue-front q) (setf (queue-back q) (cons x nil)))
+      (setf (cdr (queue-back q)) (cons x nil)
+            (queue-back q) (cdr (queue-back q)))))
+
+(defun queue-empty? (q)
+  (if (null (queue-front q))
+      t
+      nil))
+
+(defun queue-get (q)
+  (assert (queue-p q))
+  (if (queue-empty? q)
+      (error "Queue is empty."))
+  (let ((retval (pop (queue-front q))))
+    (if (null (queue-front q))
+        (setf (queue-back q) nil))
+    retval))
+
+;; A simple test.
+(defvar *input-string* "abaaacaabacdbaaaaaaa")
+(defvar *encoded-seq* nil)
 (defun test ()
-  (let ((ss (make-string-input-stream "abaaacaabacdbaaaaaaa"))
+  (let ((ss (make-string-input-stream *input-string*))
         (ctx (fresh-lzw-enc-ctx)))
-    (loop 
-        (let ((ch (read-char ss)))
-          (if (not ch) (return))
-          (let* ((retval (lzw-enc-letter (- (char-code ch) (char-code #\a)) ctx)))
-            (print retval)
-            ;(new-line)
-            t)))))
+    ;; Loop through all of the letters.
+    (loop for ch = (read-char ss nil nil)
+          while ch
+          do (let ((retval (lzw-enc-letter (char-code ch) ctx)))
+               (print retval)
+               (setf *encoded-seq* (cons retval *encoded-seq*))))
+    ;; Finish encoding by outputing the last encoded number.
+    (let ((retval (lzw-enc-finish ctx)))
+      (assert (not (null retval)))
+      (print retval)
+      (setf *encoded-seq* (cons retval *encoded-seq*)))))
+
+;; Decoding.
+
+(defstruct dec-table-entry
+  prefix
+  rest)
+
+(defstruct lzw-dec-ctx
+  (table (make-hash-table))
+  last-inserted)
+
