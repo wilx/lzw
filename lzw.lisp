@@ -158,7 +158,8 @@
 
 (defstruct lzw-dec-ctx
   ;; Table mapping encoded numbers to strings that they represent.
-  (table (make-array 256 :initial-element nil :fill-pointer t))
+  (table (make-array 256 :initial-element nil :adjustable t 
+                     :fill-pointer t))
   ;; Points to dec-table-entry that will be inserted once its
   ;; rest field is known.
   new-entry
