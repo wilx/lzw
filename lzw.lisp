@@ -92,12 +92,36 @@
           ;; Return nil as we have nothing to output yet.
           nil))))
 
+;; A simple test.
+(defvar *input-string* "abaaacaabacdbaaaaaaa")
+(defvar *encoded-seq* nil)
+(defun test-enc ()
+  (setf *encoded-seq* nil)
+  (let ((ss (make-string-input-stream *input-string*))
+        (ctx (fresh-lzw-enc-ctx)))
+    ;; Loop through all of the letters.
+    (loop for ch = (read-char ss nil nil)
+          while ch
+          do (let ((retval (lzw-enc-letter (char-code ch) ctx)))
+               (print retval)
+               (setf *encoded-seq* (cons retval *encoded-seq*))))
+    ;; Finish encoding by outputing the last encoded number.
+    (let ((retval (lzw-enc-finish ctx)))
+      (assert (not (null retval)))
+      (print retval)
+      (setf *encoded-seq* 
+            (remove-if (lambda (x) (null x))
+                       (reverse (cons retval *encoded-seq*)))))))
+
+
 ;; Returns the last output character at the end of encoding.
 (defun lzw-enc-finish (ctx)
   (assert (not (eq (lzw-enc-ctx-current ctx) (lzw-enc-ctx-tree ctx))))
   (node-num (lzw-enc-ctx-current ctx)))
 
+
 ;; Queue
+
 (defstruct queue 
   front
   back)
@@ -123,38 +147,21 @@
         (setf (queue-back q) nil))
     retval))
 
-;; A simple test.
-(defvar *input-string* "abaaacaabacdbaaaaaaa")
-(defvar *encoded-seq* nil)
-(defun test-enc ()
-  (setf *encoded-seq* nil)
-  (let ((ss (make-string-input-stream *input-string*))
-        (ctx (fresh-lzw-enc-ctx)))
-    ;; Loop through all of the letters.
-    (loop for ch = (read-char ss nil nil)
-          while ch
-          do (let ((retval (lzw-enc-letter (char-code ch) ctx)))
-               (print retval)
-               (setf *encoded-seq* (cons retval *encoded-seq*))))
-    ;; Finish encoding by outputing the last encoded number.
-    (let ((retval (lzw-enc-finish ctx)))
-      (assert (not (null retval)))
-      (print retval)
-      (setf *encoded-seq* (cons retval *encoded-seq*)))))
 
 ;; Decoding.
 
 (defstruct dec-table-entry
   ;; Points to dec-table-entry that makes prefix of this element.
   prefix
-  ;; String that this table element adds to its prefix.
+  ;; List of chars that this table element adds to its prefix.
   rest)
 
 (defstruct lzw-dec-ctx
   ;; Table mapping encoded numbers to strings that they represent.
-  (table (make-hash-table))
-  ;; Points to dec-table-entry that was last inserted.
-  last-inserted
+  (table (make-array 256 :initial-element nil :fill-pointer t))
+  ;; Points to dec-table-entry that will be inserted once its
+  ;; rest field is known.
+  new-entry
   ;; Points to dec-table-entry that was last decoded.
   last-decoded
   ;; Number of nodes in the table.
@@ -163,7 +170,79 @@
 (defun fresh-lzw-dec-ctx ()
   (let ((ctx (make-lzw-dec-ctx :node-count 256)))
     (loop for i from 0 to 255
-          do (setf (gethash i (lzw-dec-ctx-table ctx))
+          do (setf (aref (lzw-dec-ctx-table ctx) i)
                    (make-dec-table-entry :prefix nil :rest i)))
     ctx))
 
+;; Returns the first letter of dec-table-entry by traversing all
+;; entries chaned by prefix field up to the first one.
+(defun first-letter (entry)
+  ;(assert (dec-table-entry-p entry))
+  (if (null entry) 
+      nil
+      (let ((prefix (dec-table-entry-prefix entry))
+            (rest (dec-table-entry-rest entry)))
+        (assert (not (null rest)))
+        (if (not (null prefix))
+            (first-letter prefix)
+            (car rest)))))
+  
+(defun splice-output (entry)
+  (labels ((splice-into-queue (q entry)
+             (if (not (null entry))
+                 (progn
+                   (splice-into-queue q (dec-table-entry-prefix entry))
+                   (queue-put q (dec-table-entry-rest entry))))))
+    (let ((q (make-queue)))
+      (splice-into-queue q entry)
+      (queue-front q))))
+
+(defun lzw-dec-code (ctx code)
+  (let* ((table (lzw-dec-ctx-table ctx))
+         (last-decoded (lzw-dec-ctx-last-decoded ctx))
+         (last-decoded-first-letter (first-letter last-decoded)))
+    (flet ((finish-prev-new-entry ()
+             (let ((prev-new-entry (lzw-dec-ctx-new-entry ctx)))
+               (if (not (null prev-new-entry))
+                   (progn 
+                     (setf (dec-table-entry-rest prev-new-entry) 
+                           last-decoded-first-letter)
+                     (print (vector-push-extend prev-new-entry table))
+                     (incf (lzw-dec-ctx-node-count ctx)))))))
+      (if (< (lzw-dec-ctx-node-count ctx) code)
+          ;; We are inside the table
+          (let* ((entry (aref (lzw-dec-ctx-table ctx) code))
+                 (new-entry (make-dec-table-entry :prefix entry)))
+            ;; Finish the previous :new-entry.
+            (finish-prev-new-entry)
+            ;; Record the last decoded entry.
+            (setf (lzw-dec-ctx-last-decoded ctx) entry)
+            ;; Remember the new entry that will be added :rest in the next step
+            ;; and will be put into table.
+            (setf (lzw-dec-ctx-new-entry ctx) new-entry)
+            ;; Splice output from all indicies.
+            (print (splice-output entry))
+            (splice-output entry))
+
+          ;; The code is not in the table.
+          (let ((new-entry (make-dec-table-entry
+                            :prefix last-decoded
+                            :rest last-decoded-first-letter)))
+            ;; Finish the previous :new-entry.
+            (finish-prev-new-entry)
+            ;; Reset the field to nil.
+            (setf (lzw-dec-ctx-new-entry ctx) nil)
+            ;; Record the new last-decoded code.
+            (setf (lzw-dec-ctx-last-decoded ctx) new-entry)
+            ;; Add the new-entry to the table.
+            (print (vector-push-extend new-entry table))
+            (incf (lzw-dec-ctx-node-count ctx))
+            ;; Splice output from all indicies.
+            (print (splice-output new-entry))
+            (splice-output new-entry))))))
+
+(defun test-dec ()
+  (let ((ctx (fresh-lzw-dec-ctx)))
+    (mapcar (lambda (code) 
+              (print (lzw-dec-code ctx code)))
+            *encoded-seq*)))
