@@ -64,10 +64,6 @@
 
 ;; Tries to walk from node to a next node using a letter.
 ;; Returns either NIL or integer 
-;; The two possible outputs are: 
-;;   (moved-to-node nil nil): It was possible to move to a next node.
-;;   (nil inserted-node output-code): It was not possible to move to a next 
-;;     node.
 (defun lzw-enc-letter (letter ctx)
   (let* ((node (or (lzw-enc-ctx-current ctx) (lzw-enc-ctx-tree ctx)))
          (next (next-node node letter)))
@@ -92,9 +88,12 @@
           ;; Return nil as we have nothing to output yet.
           nil))))
 
-;; A simple test.
+
+;; Input test string.
 (defvar *input-string* "abaaacaabacdbaaaaaaa")
+;; List of LZW indicies.
 (defvar *encoded-seq* nil)
+;; Simple encoding test.
 (defun test-enc ()
   (setf *encoded-seq* nil)
   (let ((ss (make-string-input-stream *input-string*))
@@ -103,12 +102,10 @@
     (loop for ch = (read-char ss nil nil)
           while ch
           do (let ((retval (lzw-enc-letter (char-code ch) ctx)))
-               (print retval)
                (setf *encoded-seq* (cons retval *encoded-seq*))))
     ;; Finish encoding by outputing the last encoded number.
     (let ((retval (lzw-enc-finish ctx)))
       (assert (not (null retval)))
-      (print retval)
       (setf *encoded-seq* 
             (remove-if (lambda (x) (null x))
                        (reverse (cons retval *encoded-seq*)))))))
@@ -126,6 +123,7 @@
   front
   back)
 
+;; Puts x into queue q.
 (defun queue-put (q x)
   (assert (queue-p q))
   (if (null (queue-front q))
@@ -133,11 +131,13 @@
       (setf (cdr (queue-back q)) (cons x nil)
             (queue-back q) (cdr (queue-back q)))))
 
+;; Predicate.
 (defun queue-empty? (q)
   (if (null (queue-front q))
       t
       nil))
 
+;; Returns first element of queue.
 (defun queue-get (q)
   (assert (queue-p q))
   (if (queue-empty? q)
@@ -182,12 +182,12 @@
       nil
       (let ((prefix (dec-table-entry-prefix entry))
             (rest (dec-table-entry-rest entry)))
-        ;;(assert (not (null rest)))
         (if (not (null prefix))
             (first-letter prefix)
-            ;;(car rest)))))
             rest))))
   
+;; Traverses entry and all of its prefixes, collects them and returns
+;; them in a list.
 (defun splice-output (entry)
   (labels ((splice-into-queue (q entry)
              (if (not (null entry))
@@ -198,6 +198,7 @@
       (splice-into-queue q entry)
       (queue-front q))))
 
+;; Testing string:
 ;; a b a a a c a a b a c d b a a a a a a a
 ;; (97 98 97 258 99 258 257 99 100 257 258 266 97)
 
