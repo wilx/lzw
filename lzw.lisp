@@ -204,6 +204,7 @@
 ;; (97 98 97 258 99 258 257 99 100 257 258 266 97)
 
 (defun lzw-dec-code (ctx code)
+  (assert (= (lzw-dec-ctx-node-count ctx) (length (lzw-dec-ctx-table ctx))))
   (let* ((table (lzw-dec-ctx-table ctx)))
     (if (< code (lzw-dec-ctx-node-count ctx))
         ;; We are inside the table
@@ -244,6 +245,7 @@
           ;; Record the new last-decoded code.
           (setf (lzw-dec-ctx-last-decoded ctx) new-entry)
           ;; Add the new-entry to the table.
+          (vector-push-extend new-entry table)
           (incf (lzw-dec-ctx-node-count ctx))
           ;; Splice output from all indicies.
           (splice-output new-entry)))))
