@@ -171,7 +171,7 @@
   (let ((ctx (make-lzw-dec-ctx :node-count 256)))
     (loop for i from 0 to 255
           do (setf (aref (lzw-dec-ctx-table ctx) i)
-                   (make-dec-table-entry :prefix nil :rest i)))
+                   (make-dec-table-entry :prefix nil :rest (list i))))
     ctx))
 
 ;; Returns the first letter of dec-table-entry by traversing all
@@ -182,7 +182,7 @@
       nil
       (let ((prefix (dec-table-entry-prefix entry))
             (rest (dec-table-entry-rest entry)))
-        (assert (not (null rest)))
+        ;;(assert (not (null rest)))
         (if (not (null prefix))
             (first-letter prefix)
             (car rest)))))
@@ -197,49 +197,68 @@
       (splice-into-queue q entry)
       (queue-front q))))
 
-(defun lzw-dec-code (ctx code)
-  (let* ((table (lzw-dec-ctx-table ctx))
-         (last-decoded (lzw-dec-ctx-last-decoded ctx))
-         (last-decoded-first-letter (first-letter last-decoded)))
-    (flet ((finish-prev-new-entry ()
-             (let ((prev-new-entry (lzw-dec-ctx-new-entry ctx)))
-               (if (not (null prev-new-entry))
-                   (progn 
-                     (setf (dec-table-entry-rest prev-new-entry) 
-                           last-decoded-first-letter)
-                     (print (vector-push-extend prev-new-entry table))
-                     (incf (lzw-dec-ctx-node-count ctx)))))))
-      (if (< (lzw-dec-ctx-node-count ctx) code)
-          ;; We are inside the table
-          (let* ((entry (aref (lzw-dec-ctx-table ctx) code))
-                 (new-entry (make-dec-table-entry :prefix entry)))
-            ;; Finish the previous :new-entry.
-            (finish-prev-new-entry)
-            ;; Record the last decoded entry.
-            (setf (lzw-dec-ctx-last-decoded ctx) entry)
-            ;; Remember the new entry that will be added :rest in the next step
-            ;; and will be put into table.
-            (setf (lzw-dec-ctx-new-entry ctx) new-entry)
-            ;; Splice output from all indicies.
-            (print (splice-output entry))
-            (splice-output entry))
+;; (97 98 97 258 99 258 257 99 100 257 258 266 97)
 
-          ;; The code is not in the table.
-          (let ((new-entry (make-dec-table-entry
-                            :prefix last-decoded
-                            :rest last-decoded-first-letter)))
-            ;; Finish the previous :new-entry.
-            (finish-prev-new-entry)
-            ;; Reset the field to nil.
-            (setf (lzw-dec-ctx-new-entry ctx) nil)
-            ;; Record the new last-decoded code.
-            (setf (lzw-dec-ctx-last-decoded ctx) new-entry)
-            ;; Add the new-entry to the table.
-            (print (vector-push-extend new-entry table))
-            (incf (lzw-dec-ctx-node-count ctx))
-            ;; Splice output from all indicies.
-            (print (splice-output new-entry))
-            (splice-output new-entry))))))
+(defun lzw-dec-code (ctx code)
+  (let* ((table (lzw-dec-ctx-table ctx)))
+    (if (< code (lzw-dec-ctx-node-count ctx))
+        ;; We are inside the table
+        (let* ((entry (aref (lzw-dec-ctx-table ctx) code))
+               (new-entry (make-dec-table-entry :prefix entry)))
+          (print "code should be in table")
+          (print "entry")
+          (print entry)
+          (print "new-entry")
+          (print new-entry)
+          ;; Finish the previous :new-entry.
+          ;;(finish-prev-new-entry)
+          (let ((prev-new-entry (lzw-dec-ctx-new-entry ctx)))
+            (if (not (null prev-new-entry))
+                (progn
+                  (setf (dec-table-entry-rest prev-new-entry)
+                        (first-letter entry))
+                  (print (vector-push-extend prev-new-entry table))
+                  (incf (lzw-dec-ctx-node-count ctx)))))
+          ;; Record the last decoded entry.
+          (setf (lzw-dec-ctx-last-decoded ctx) entry)
+          ;; Remember the new entry that will be added :rest in the next step
+          ;; and will be put into table.
+          (setf (lzw-dec-ctx-new-entry ctx) new-entry)
+          ;; Splice output from all indicies.
+          (print "output")
+          (splice-output entry))
+        
+        ;; The code is not in the table.
+        (let* ((last-decoded (lzw-dec-ctx-last-decoded ctx))
+               (last-decoded-first-letter (first-letter last-decoded))
+               (new-entry (make-dec-table-entry
+                           :prefix last-decoded
+                           :rest last-decoded-first-letter)))
+          (print "code is not in table")
+          ;; Finish the previous :new-entry.
+          ;;(finish-prev-new-entry)
+          (let ((prev-new-entry (lzw-dec-ctx-new-entry ctx)))
+            (print "finish-prev-new-entry:prev-new-entry:before")
+            (print prev-new-entry)
+            (if (not (null prev-new-entry))
+                (progn 
+                  (setf (dec-table-entry-rest prev-new-entry) 
+                        last-decoded-first-letter)
+                  (print "finish-prev-new-entry:prev-new-entry:after")
+                  (print prev-new-entry)
+                  (print "vecpush")
+                  (print (vector-push-extend prev-new-entry table))
+                  (incf (lzw-dec-ctx-node-count ctx)))))
+          ;; Reset the field to nil.
+          (setf (lzw-dec-ctx-new-entry ctx) nil)
+          ;; Record the new last-decoded code.
+          (setf (lzw-dec-ctx-last-decoded ctx) new-entry)
+          ;; Add the new-entry to the table.
+          (print (vector-push-extend new-entry table))
+          (incf (lzw-dec-ctx-node-count ctx))
+          ;; Splice output from all indicies.
+          (print (splice-output new-entry))
+          (splice-output new-entry)))))
 
 (defun test-dec ()
   (let ((ctx (fresh-lzw-dec-ctx)))
