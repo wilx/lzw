@@ -171,7 +171,7 @@
   (let ((ctx (make-lzw-dec-ctx :node-count 256)))
     (loop for i from 0 to 255
           do (setf (aref (lzw-dec-ctx-table ctx) i)
-                   (make-dec-table-entry :prefix nil :rest (list i))))
+                   (make-dec-table-entry :prefix nil :rest i)))
     ctx))
 
 ;; Returns the first letter of dec-table-entry by traversing all
@@ -185,7 +185,8 @@
         ;;(assert (not (null rest)))
         (if (not (null prefix))
             (first-letter prefix)
-            (car rest)))))
+            ;;(car rest)))))
+            rest))))
   
 (defun splice-output (entry)
   (labels ((splice-into-queue (q entry)
@@ -197,6 +198,7 @@
       (splice-into-queue q entry)
       (queue-front q))))
 
+;; a b a a a c a a b a c d b a a a a a a a
 ;; (97 98 97 258 99 258 257 99 100 257 258 266 97)
 
 (defun lzw-dec-code (ctx code)
@@ -205,19 +207,13 @@
         ;; We are inside the table
         (let* ((entry (aref (lzw-dec-ctx-table ctx) code))
                (new-entry (make-dec-table-entry :prefix entry)))
-          (print "code should be in table")
-          (print "entry")
-          (print entry)
-          (print "new-entry")
-          (print new-entry)
           ;; Finish the previous :new-entry.
-          ;;(finish-prev-new-entry)
           (let ((prev-new-entry (lzw-dec-ctx-new-entry ctx)))
             (if (not (null prev-new-entry))
                 (progn
                   (setf (dec-table-entry-rest prev-new-entry)
                         (first-letter entry))
-                  (print (vector-push-extend prev-new-entry table))
+                  (vector-push-extend prev-new-entry table)
                   (incf (lzw-dec-ctx-node-count ctx)))))
           ;; Record the last decoded entry.
           (setf (lzw-dec-ctx-last-decoded ctx) entry)
@@ -225,7 +221,6 @@
           ;; and will be put into table.
           (setf (lzw-dec-ctx-new-entry ctx) new-entry)
           ;; Splice output from all indicies.
-          (print "output")
           (splice-output entry))
         
         ;; The code is not in the table.
@@ -234,34 +229,33 @@
                (new-entry (make-dec-table-entry
                            :prefix last-decoded
                            :rest last-decoded-first-letter)))
-          (print "code is not in table")
           ;; Finish the previous :new-entry.
-          ;;(finish-prev-new-entry)
           (let ((prev-new-entry (lzw-dec-ctx-new-entry ctx)))
-            (print "finish-prev-new-entry:prev-new-entry:before")
-            (print prev-new-entry)
             (if (not (null prev-new-entry))
                 (progn 
                   (setf (dec-table-entry-rest prev-new-entry) 
                         last-decoded-first-letter)
-                  (print "finish-prev-new-entry:prev-new-entry:after")
-                  (print prev-new-entry)
-                  (print "vecpush")
-                  (print (vector-push-extend prev-new-entry table))
+                  (vector-push-extend prev-new-entry table)
                   (incf (lzw-dec-ctx-node-count ctx)))))
           ;; Reset the field to nil.
           (setf (lzw-dec-ctx-new-entry ctx) nil)
           ;; Record the new last-decoded code.
           (setf (lzw-dec-ctx-last-decoded ctx) new-entry)
           ;; Add the new-entry to the table.
-          (print (vector-push-extend new-entry table))
           (incf (lzw-dec-ctx-node-count ctx))
           ;; Splice output from all indicies.
-          (print (splice-output new-entry))
           (splice-output new-entry)))))
 
+(defvar *decoded-seq* nil)
+(defvar *decoded-string* nil)
 (defun test-dec ()
-  (let ((ctx (fresh-lzw-dec-ctx)))
-    (mapcar (lambda (code) 
-              (print (lzw-dec-code ctx code)))
-            *encoded-seq*)))
+  (let* ((ctx (fresh-lzw-dec-ctx)))
+    (setf *decoded-seq* 
+          (mapcar (lambda (code) 
+                    ;;(print (lzw-dec-code ctx code)))
+                    (mapcar (lambda (c) (code-char c))
+                            (lzw-dec-code ctx code)))
+                  *encoded-seq*))
+    (setf *decoded-string* 
+          (reduce (lambda (a b) (concatenate 'string a b))
+                  (mapcar (lambda (l) (coerce l 'string)) *decoded-seq*)))))
