@@ -10,6 +10,7 @@
 
 
 ;; next-node
+(defgeneric next-node (node letter))
 (defmethod next-node ((node node) letter)
   (error "pure virtual"))
 
@@ -21,6 +22,7 @@
 
 
 ;; insert-node
+(defgeneric insert-node (node inserted-node letter))
 (defmethod insert-node ((node node) inserted-node letter)
   (error "pure virtual"))
 
