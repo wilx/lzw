@@ -1,0 +1,35 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.lisp }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lisp: SBCL
+            package: sbcl
+            command: sbcl --script tests/run.lisp
+          - lisp: CLISP
+            package: clisp
+            command: clisp -q -norc tests/run.lisp
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Lisp and test framework
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ${{ matrix.package }} cl-fiveam
+      - name: Run tests
+        run: ${{ matrix.command }}

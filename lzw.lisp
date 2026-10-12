@@ -1,3 +1,5 @@
+(in-package #:cl-user)
+
 ;; Tree.
 (defclass node ()
   ((num :reader node-num :initarg :num)))
@@ -67,6 +69,7 @@
 ;; Tries to walk from node to a next node using a letter.
 ;; Returns either NIL or integer 
 (defun lzw-enc-letter (letter ctx)
+  (check-type letter (unsigned-byte 8))
   (let* ((node (or (lzw-enc-ctx-current ctx) (lzw-enc-ctx-tree ctx)))
          (next (next-node node letter)))
     (if (null next)
@@ -91,6 +94,13 @@
           nil))))
 
 
+;; Returns the final code, or NIL when no input has been encoded.
+(defun lzw-enc-finish (ctx)
+  (let ((current (lzw-enc-ctx-current ctx)))
+    (when current
+      (node-num current))))
+
+
 ;; Input test string.
 (defvar *input-string* "abaaacaabacdbaaaaaaa")
 ;; List of LZW indicies.
@@ -107,16 +117,9 @@
                (setf *encoded-seq* (cons retval *encoded-seq*))))
     ;; Finish encoding by outputing the last encoded number.
     (let ((retval (lzw-enc-finish ctx)))
-      (assert (not (null retval)))
       (setf *encoded-seq* 
             (remove-if (lambda (x) (null x))
                        (reverse (cons retval *encoded-seq*)))))))
-
-
-;; Returns the last output character at the end of encoding.
-(defun lzw-enc-finish (ctx)
-  (assert (not (eq (lzw-enc-ctx-current ctx) (lzw-enc-ctx-tree ctx))))
-  (node-num (lzw-enc-ctx-current ctx)))
 
 
 ;; Queue
@@ -206,51 +209,27 @@
 ;; (97 98 97 258 99 258 257 99 100 257 258 266 97)
 
 (defun lzw-dec-code (ctx code)
+  (check-type code (integer 0 *))
   (assert (= (lzw-dec-ctx-node-count ctx) (length (lzw-dec-ctx-table ctx))))
-  (let* ((table (lzw-dec-ctx-table ctx)))
-    (if (< code (lzw-dec-ctx-node-count ctx))
-        ;; We are inside the table
-        (let* ((entry (aref (lzw-dec-ctx-table ctx) code))
-               (new-entry (make-dec-table-entry :prefix entry)))
-          ;; Finish the previous :new-entry.
-          (let ((prev-new-entry (lzw-dec-ctx-new-entry ctx)))
-            (if (not (null prev-new-entry))
-                (progn
-                  (setf (dec-table-entry-rest prev-new-entry)
-                        (first-letter entry))
-                  (vector-push-extend prev-new-entry table)
-                  (incf (lzw-dec-ctx-node-count ctx)))))
-          ;; Record the last decoded entry.
-          (setf (lzw-dec-ctx-last-decoded ctx) entry)
-          ;; Remember the new entry that will be added :rest in the next step
-          ;; and will be put into table.
-          (setf (lzw-dec-ctx-new-entry ctx) new-entry)
-          ;; Splice output from all indicies.
-          (splice-output entry))
-        
-        ;; The code is not in the table.
-        (let* ((last-decoded (lzw-dec-ctx-last-decoded ctx))
-               (last-decoded-first-letter (first-letter last-decoded))
-               (new-entry (make-dec-table-entry
-                           :prefix last-decoded
-                           :rest last-decoded-first-letter)))
-          ;; Finish the previous :new-entry.
-          (let ((prev-new-entry (lzw-dec-ctx-new-entry ctx)))
-            (if (not (null prev-new-entry))
-                (progn 
-                  (setf (dec-table-entry-rest prev-new-entry) 
-                        last-decoded-first-letter)
-                  (vector-push-extend prev-new-entry table)
-                  (incf (lzw-dec-ctx-node-count ctx)))))
-          ;; Reset the field to nil.
-          (setf (lzw-dec-ctx-new-entry ctx) nil)
-          ;; Record the new last-decoded code.
-          (setf (lzw-dec-ctx-last-decoded ctx) new-entry)
-          ;; Add the new-entry to the table.
-          (vector-push-extend new-entry table)
-          (incf (lzw-dec-ctx-node-count ctx))
-          ;; Splice output from all indicies.
-          (splice-output new-entry)))))
+  (let* ((table (lzw-dec-ctx-table ctx))
+         (count (lzw-dec-ctx-node-count ctx))
+         (pending (lzw-dec-ctx-new-entry ctx)))
+    ;; An unknown code is valid only at the next unused index, after a
+    ;; previous phrase. Reject invalid codes before changing the context.
+    (unless (or (< code count)
+                (and (= code count) pending))
+      (error "Invalid LZW code ~S; next dictionary code is ~D." code count))
+    (let* ((entry (if (< code count) (aref table code) pending))
+           (new-entry (make-dec-table-entry :prefix entry)))
+      ;; In the KwKwK case ENTRY is PENDING: previous phrase + its first
+      ;; letter. Complete and insert exactly one entry in either case.
+      (when pending
+        (setf (dec-table-entry-rest pending) (first-letter entry))
+        (vector-push-extend pending table)
+        (incf (lzw-dec-ctx-node-count ctx)))
+      (setf (lzw-dec-ctx-last-decoded ctx) entry
+            (lzw-dec-ctx-new-entry ctx) new-entry)
+      (splice-output entry))))
 
 (defvar *decoded-seq* nil)
 (defvar *decoded-string* nil)
@@ -264,4 +243,5 @@
                   *encoded-seq*))
     (setf *decoded-string* 
           (reduce (lambda (a b) (concatenate 'string a b))
-                  (mapcar (lambda (l) (coerce l 'string)) *decoded-seq*)))))
+                  (mapcar (lambda (l) (coerce l 'string)) *decoded-seq*)
+                  :initial-value ""))))
